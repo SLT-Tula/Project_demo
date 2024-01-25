@@ -1,0 +1,36 @@
+import gradio as gr
+import pandas as pd
+import gradio_client as Client
+import requests
+ 
+# Hàm để gọi API và trả về dữ liệu từ cơ sở dữ liệu
+def call_api(query):
+    api_url = "http://127.0.0.1:7864/"
+    params = {"query": query}
+    response = requests.get(api_url, params=params)
+    if response.status_code == 200:
+        data = response.json()
+        return data
+    else:
+        return None
+ 
+# Hàm xử lý khi có sự kiện thay đổi trên ô input
+def get_data(query):
+    # Gọi hàm để lấy dữ liệu từ API
+    data = call_api(query)
+    if data:
+        # Chuyển đổi dữ liệu thành DataFrame Pandas để hiển thị dưới dạng bảng
+        df = pd.DataFrame(data)
+        return df
+    else:
+        return None
+ 
+# Tạo Gradio Interface
+iface = gr.Interface(
+    fn=get_data,
+    inputs=gr.Textbox(),
+    outputs=gr.DataFrame()
+)
+ 
+# Chạy Gradio Interface
+iface.launch()
