@@ -1,22 +1,13 @@
 import gradio as gr
 import pandas as pd
-import gradio_client as Client
 import requests
+import sqlite3
  
-# Hàm để gọi API và trả về dữ liệu từ cơ sở dữ liệu
-def call_api(query):
-    api_url = "http://127.0.0.1:7864/"
-    params = {"query": query}
-    response = requests.get(api_url, params=params)
-    if response.status_code == 200:
-        data = response.json()
-        return data
-    else:
-        return None
- 
-# Hàm xử lý khi có sự kiện thay đổi trên ô input
+def create_database():
+    db = sqlite3.connect("web_data.db")
+    db_cursor = db.cursor()
+    db_curs
 def get_data(query):
-    # Gọi hàm để lấy dữ liệu từ API
     data = call_api(query)
     if data:
         # Chuyển đổi dữ liệu thành DataFrame Pandas để hiển thị dưới dạng bảng
