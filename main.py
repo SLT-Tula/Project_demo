@@ -10,19 +10,24 @@ import time
 from psycopg2 import sql
 
 
-# link_author_saved = []
-
-def crawl_content_article(link):
+def crawl_article(link):
     url = 'https://unsplash.com'
     response = requests.get(link)
     article_soup = BeautifulSoup(response.content, 'html.parser')
-    # print(link)
+    link_authors = []
+    info_author = article_soup.find('a', class_ = 'N2odk RZQOk eziW_ Byk7y KHq0c')
+    if info_author['href'][1] != '@':
+        colab_author = article_soup.find('div', class_ = 'AVon2 RZQOk iOqvK FHkK2')
+        colab_author = urljoin(url, colab_author.a['href'])
+        link_authors.append(colab_author)
+    link_author = urljoin(url, info_author['href'])
+    link_authors.append(link_author)
     img_element = article_soup.find_all('figure')
     image_link = []
     content_element = article_soup.find('div', class_ = 'eoX8Y IKU9M YBMqo')
     features = article_soup.find('div', class_ = 'VZRk3 rLPoM')
     collections_element = article_soup.find('div', class_ = 'gZhmU')
-    coll = collections_element.find('a', class_ = 'A3ryi')
+    coll = collections_element.find_all('a', class_ = 'A3ryi')
     link_colls = []
     for c in coll:
         link_coll = urljoin(url, c['href'])
@@ -30,8 +35,8 @@ def crawl_content_article(link):
     for img in img_element:
         info_img = img.find('div', class_ = 'MorZF')
         image_link.append(info_img.img['src'])
-        # return image_link, content_element.get_text()
-    return image_link, content_element.get_text(), features.get_text(separator=' | '), link_colls
+
+    return link_authors, image_link, content_element.get_text(), features.get_text(separator=' | '), link_colls
 
 def crawl_web_unsplash():
     url = 'https://unsplash.com'
@@ -42,24 +47,18 @@ def crawl_web_unsplash():
     results = []
     for figure in figures:
         try:
-            link_element = figure.find('a')
-            title = link_element['title']
-            # if link_element['href'][1] == '@':
-            #     link_author = urljoin(url, link_element['href'])
-                # if link_author not in link_author_saved:
-                    # link_author_saved.append(link_author)
-            if link_element['href'][:7] == '/photos':
+            link_element = figure.find('a', class_ = 'rEAWd')
+            if 'href' in link_element.attrs:        
+                title = link_element['title']
                 link_image_article = urljoin(url, link_element['href'])
-
-            info_image = figure.find('div', class_ = 'MorZF')
-            link_image_origin = info_image.img['src']
-            link_image_relate, content, features_image, link_colls_relate = crawl_content_article(link_image_article)
-            # print(content)
-            # if title and link_author and link_image_article and link_image_origin and content and features_image and link_image_relate and link_colls_relate is not None:
-            results.append((title, link_image_article, link_image_origin, content, features_image, link_image_relate, link_colls_relate))
+                info_image = link_element.find('div', class_ = 'MorZF')
+                link_image_origin = info_image.img['src']
+                link_authors, link_image_relate, content, features_image, link_colls_relate = crawl_article(link_image_article)
+                results.append((title, link_authors, link_image_article, link_image_origin, content, features_image, link_image_relate, link_colls_relate))
 
         except:
             continue
+    # print(results)
     return results
 
 
@@ -277,7 +276,7 @@ folder_path='C:/Users/Lenovo/OneDrive/Documents/Intern_FPT/Mock-Project/data/'
 results = crawl_web_unsplash()
 if results:
     for result in results:
-        title, link_image_article, link_image_origin, content, features_image, link_image_relate, link_colls_relate = result
+        title, link_authors, link_image_article, link_image_origin, content, features_image, link_image_relate, link_colls_relate = result
         file_path = datetime.now().strftime("%d_%m_%y") + "_" + link_image_article.split("//")[1].replace("/", "_").replace(".", "_") + ".txt"
         with open(file_path, 'w', encoding='utf-8') as file:    
             save_to_data(folder_path, file_path, title, link_image_article, link_image_origin, content, features_image, link_image_relate, link_colls_relate)
