@@ -12,7 +12,8 @@ from psycopg2 import sql
 
 def crawl_article(link):
     url = 'https://unsplash.com'
-    response = requests.get(link)
+    with requests.Session() as session:
+        response = session.get(link)
     article_soup = BeautifulSoup(response.content, 'html.parser')
     link_authors = []
     info_author = article_soup.find('a', class_ = 'N2odk RZQOk eziW_ Byk7y KHq0c')
@@ -22,8 +23,12 @@ def crawl_article(link):
         link_authors.append(colab_author)
     link_author = urljoin(url, info_author['href'])
     link_authors.append(link_author)
-    img_element = article_soup.find_all('figure')
+    images_element = article_soup.find_all('img', class_ = 'tB6UZ a5VGX')
     image_link = []
+    for image_element in images_element:
+        if 'src' in image_element.attrs:
+            image_link.append(image_element['src'])
+    
     content_element = article_soup.find('div', class_ = 'eoX8Y IKU9M YBMqo')
     features = article_soup.find('div', class_ = 'VZRk3 rLPoM')
     collections_element = article_soup.find('div', class_ = 'gZhmU')
@@ -32,11 +37,11 @@ def crawl_article(link):
     for c in coll:
         link_coll = urljoin(url, c['href'])
         link_colls.append(link_coll)
-    for img in img_element:
-        info_img = img.find('div', class_ = 'MorZF')
-        image_link.append(info_img.img['src'])
-
-    return link_authors, image_link, content_element.get_text(), features.get_text(separator=' | '), link_colls
+    info_article = {'Link authors': link_authors, 'Link related photos': image_link,
+                    'Content': content_element.get_text(),
+                    'Features of image': features.get_text(separator=' | '),
+                    'Link related collections': link_colls}
+    return info_article
 
 def crawl_web_unsplash():
     url = 'https://unsplash.com'
@@ -53,8 +58,8 @@ def crawl_web_unsplash():
                 link_image_article = urljoin(url, link_element['href'])
                 info_image = link_element.find('div', class_ = 'MorZF')
                 link_image_origin = info_image.img['src']
-                link_authors, link_image_relate, content, features_image, link_colls_relate = crawl_article(link_image_article)
-                results.append((title, link_authors, link_image_article, link_image_origin, content, features_image, link_image_relate, link_colls_relate))
+                info_article = crawl_article(link_image_article)
+                results.append((title, link_image_article, link_image_origin, info_article))
 
         except:
             continue
@@ -62,18 +67,22 @@ def crawl_web_unsplash():
     return results
 
 
-def save_to_data(output_folder, filename, title, link_image_article, link_image_origin, content, features_image, link_image_relate, link_colls_relate):
-    os.makedirs(output_folder, exist_ok=True)
+def save_to_data(output_folder, filename, title, link_image_article, link_image_origin, info_article):
+    if not os.path.exists(output_folder):
+        os.makedirs(output_folder)
     file_path = os.path.join(output_folder, filename)
-    with open(file_path, 'w', encoding='utf-8') as file:
-        try:
-            file.write("Title: " + title + '\n'
-                    + "Link image article: " + link_image_article + '\n' + 'Link image origin: ' + link_image_origin + '\n'
-                    + "Content: " + content + '\n' + 'Featured image: ' + features_image + '\n'
-                    + 'Link related photos: ' + link_image_relate + '\n' + 'Link related collections: ' + link_colls_relate)
-        except Exception as e:
-            print(f"Error writing to file: {e}")
-    print(f'Content saved to {file_path}')
+    existing_files = set(os.listdir(output_folder))
+    if filename not in existing_files:
+        with open(file_path, 'w', encoding='utf-8') as file:
+            try:
+                
+                file.write("Title: {}\nLink image article: {}\nLink image origin: {}\nInformation image article: {}.".format(title, link_image_article, link_image_origin, info_article))
+                    
+            except Exception as e:
+                print(f"Error writing to file: {e}")
+        print(f'Content saved to {file_path}')
+    else:
+        print(f"File {filename} is exists!")
 
 
 def create_database(db_name, user, password, host='localhost', port=5432):
@@ -126,25 +135,27 @@ def create_table_database():
             SELECT EXISTS (
                 SELECT 1
                 FROM information_schema.tables
-                WHERE table_name = 'web_data'
+                WHERE table_name = 'web_table'
             );
         '''
         cursor.execute(table_exists_query)
         table_exists = cursor.fetchone()[0]
 
         if not table_exists:
-            # Create the web_data table
+            # Create the web_table table
             create_table_query = '''
-                CREATE TABLE web_data (
-                    filename VARCHAR(255),
-                    link_url VARCHAR(255)
+                CREATE TABLE web_table (
+                    title VARCHAR(512),
+                    link_image_article VARCHAR(512),
+                    link_image_origin VARCHAR(512),
+                    info_image_article VARCHAR(1024)
                 );
             '''
             cursor.execute(create_table_query)
 
-            print("Table 'web_data' created successfully.")
+            print("Table 'web_table' created successfully.")
         else:
-            print("Table 'web_data' already exists. Skipping creation.")
+            print("Table 'web_table' already exists. Skipping creation.")
 
     except (Exception, psycopg2.Error) as error:
         print(f"Error creating or checking table: {error}")
@@ -154,25 +165,32 @@ def create_table_database():
             cursor.close()
             connection.close()
 
-def save_file_to_database(folder_path, db_name, user, password, host='localhost', port=5432):
+def save_file_to_database(folder_path):
     try:
         connection = psycopg2.connect(
-            database=db_name,
-            user=user,
-            password=password,
-            host=host,
-            port=port
+            database='web_data',
+            user='postgres',
+            password='TulaSlayer259@',
+            host='localhost',
+            port=5432
         )
         connection.autocommit = True
         cursor = connection.cursor()
-        for filename in os.listdir(folder_path):
+        for filename in set(os.listdir(folder_path)):
             file_path = os.path.join(folder_path, filename)
             with open(file_path, 'r', encoding='utf-8') as file:
-                link_url = file.read()
-            insert_query = sql.SQL("INSERT INTO web_data (filename, link_url) VALUES (%s, %s)")
-            cursor.execute(insert_query, (filename, link_url))
+                lines = file.readlines()
+                if not lines:
+                    continue
+                else:
+                    title = lines[0]
+                    link_image_article = lines[1]
+                    link_image_origin = lines[2]
+                    info_image_article = lines[3]
+            insert_query = sql.SQL("INSERT INTO web_table (title, link_image_article, link_image_origin, info_image_article) VALUES (%s, %s, %s, %s)")
+            cursor.execute(insert_query, (title, link_image_article, link_image_origin, info_image_article))
             print(f"File saved to {db_name}")
-            
+
     except (Exception, psycopg2.Error) as error:
         print(f"Error saving files to the database: {error}")
     finally:
@@ -193,19 +211,20 @@ def execute_search_query(query):
         cursor = connection.cursor()
 
         # Customize the SQL query based on your data structure and search criteria
-        search_query = "SELECT filename, link_url FROM web_data WHERE filename ILIKE %s OR link_url ILIKE %s"
+        search_query = "SELECT title, link_image_article, link_image_origin, info_image_article FROM web_table WHERE title ILIKE %s OR info_image_article ILIKE %s"
         cursor.execute(search_query, ('%' + query + '%', '%' + query + '%'))
         results = cursor.fetchall()
         
         if results:
             # return results
-            # related_links = [result[0] for result in results]
+            related_links = [result[0] for result in results]
             print(f"Related link URLs for query '{query}':")
             for record in results:
-                filename, link_url = record
-                # print(record)
-                print(f"Filename: {filename}, Link URL: {link_url}")
-                return filename, link_url
+                title, link_image_article, link_image_origin, info_image_article = record
+            #     # print(record)
+                print(f"Title: {title}, Link image article: {link_image_article}, Link image origin: {link_image_origin}, Information image article: {info_image_article}")
+            #     # return title, link_image_article, link_image_origin, info_image_article
+                return related_links
         else:
             # return None
             print(f"No related link URLs found for query '{query}'.")
@@ -217,43 +236,20 @@ def execute_search_query(query):
         if connection:
             cursor.close()
             connection.close()
- 
-    
 
 
 def search(query):
     # Customize the SQL query to retrieve relevant link URLs based on the user's question
     result = execute_search_query(query)
- 
     return result
 
-
-
-def print_like_dislike(x: gr.LikeData):
-    print(x.index, x.value, x.liked)
-
-
-def add_text(history, text):
-    history = history + [(text, None)]
-    return history, gr.Textbox(value="", interactive=False)
-
-
-def bot(history):
-    response = search(txt.value)
-    history[-1][1] = ""
-    for character in response:
-        history[-1][1] += character
-        time.sleep(0.05)
-        yield history
+def show_search(query):
+    # query = txt.value
+    output = search(query)
+    return output
 
 
 with gr.Blocks() as demo:
-    chatbot = gr.Chatbot(
-        [],
-        elem_id="chatbot",
-        bubble_full_width=False,
-        label='Search Engine'
-    )
 
     with gr.Row():
         txt = gr.Textbox(
@@ -262,40 +258,36 @@ with gr.Blocks() as demo:
             placeholder="Enter your search here...",
             container=False,
         )
-        clear = gr.ClearButton([txt, chatbot])
-
-    txt_msg = txt.submit(add_text, [chatbot, txt], [chatbot, txt], queue=False).then(
-        bot, chatbot, chatbot, api_name="bot_response"
-    )
-    txt_msg.then(lambda: gr.Textbox(interactive=True), None, [txt], queue=False)
-
-    chatbot.like(print_like_dislike, None, None)
+        btn = gr.Button(value = 'Search')
+    results = gr.Textbox(value="", lines=8)
+    txt_query = txt.submit(show_search, [txt], [results])
+    btn.click(show_search, inputs=[txt], outputs=[results])
+    clear = gr.ClearButton([txt, results])
 
 
 folder_path='C:/Users/Lenovo/OneDrive/Documents/Intern_FPT/Mock-Project/data/'
 results = crawl_web_unsplash()
 if results:
     for result in results:
-        title, link_authors, link_image_article, link_image_origin, content, features_image, link_image_relate, link_colls_relate = result
+        title, link_image_article, link_image_origin, info_image_article = result
         file_path = datetime.now().strftime("%d_%m_%y") + "_" + link_image_article.split("//")[1].replace("/", "_").replace(".", "_") + ".txt"
-        with open(file_path, 'w', encoding='utf-8') as file:    
-            save_to_data(folder_path, file_path, title, link_image_article, link_image_origin, content, features_image, link_image_relate, link_colls_relate)
-            print("Save url to file txt successful!")
+        # with open(file_path, 'w', encoding='utf-8') as file:    
+        save_to_data(folder_path, file_path, title, link_image_article, link_image_origin, info_image_article)
+        print("Save url to file txt successful!")
         
 else:
     print("Error: Unable to crawl Unsplash.")
 
 
 # Replace these values with your PostgreSQL credentials
-# db_name = 'web_data'
-# user = 'postgres'
-# password = 'TulaSlayer259@'
+db_name = 'web_data'
+user = 'postgres'
+password = 'TulaSlayer259@'
  
-# create_database(db_name, user, password)
-# create_table_database()
-# save_file_to_database(folder_path, db_name, user, password)
+create_database(db_name, user, password)
+create_table_database()
+save_file_to_database(folder_path)
 
 
-# demo.queue()
-# if __name__ == "__main__":
-#     demo.launch()
+if __name__ == "__main__":
+    demo.launch()
